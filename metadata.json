@@ -1,6 +1,6 @@
 {
-  "name": "ZeppHello - Zepp OS Amazfit Template & App Builder",
-  "description": "Zepp OS 3.0 / 2.x Mini-App template by Stealth Apps for Amazfit smartwatches featuring interactive Hello message, customizable color settings, companion app side, widgets, and GitHub QR code installer generator for developer mode on Zepp App.",
+  "name": "Stealth Aurora Tracker - Zepp OS Amazfit Watch App",
+  "description": "Real-time Northern Lights Aurora likelihood tracker and 10-hour forecast for Amazfit Active 3 (round 466x466 display) using GPS, NOAA space weather, and Open-Meteo cloud cover APIs.",
   "requestFramePermissions": [
     "geolocation"
   ],

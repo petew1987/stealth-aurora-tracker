@@ -1,8 +1,8 @@
 {
   "configVersion": "v3",
   "app": {
-    "appId": 1009877,
-    "appName": "ZeppHello",
+    "appId": 1009876,
+    "appName": "Stealth Aurora Tracker",
     "appType": "app",
     "version": {
       "code": 1,
@@ -10,12 +10,14 @@
     },
     "icon": "icon.png",
     "vender": "Stealth Apps",
-    "description": "Zepp OS 3.0 / 2.x Mini-App template by Stealth Apps for Amazfit smartwatches featuring interactive Hello message, customizable color settings, companion app side, widgets, and GitHub QR code installer generator for developer mode on Zepp App."
+    "description": "Real-time Aurora Northern Lights forecast and viewing likelihood tracker for Amazfit Active 3 using GPS position, NOAA space weather models, and Open-Meteo cloud cover."
   },
   "packageInfo": {
     "mode": "preview"
   },
   "permissions": [
+    "permission.GPS",
+    "device:location",
     "device:os.bg_service"
   ],
   "runtime": {
@@ -42,7 +44,7 @@
         "app-widget": {
           "widgets": [
             {
-              "name": "ZeppHello Widget",
+              "name": "Stealth Aurora Widget",
               "path": "app-widget/index",
               "icon": "icon.png"
             }
@@ -51,7 +53,7 @@
         "secondary-widget": {
           "widgets": [
             {
-              "name": "ZeppHello Quick",
+              "name": "Stealth Aurora Glance",
               "path": "secondary-widget/index",
               "icon": "icon.png"
             }
@@ -68,7 +70,7 @@
   },
   "i18n": {
     "en-US": {
-      "appName": "ZeppHello"
+      "appName": "Stealth Aurora Tracker"
     }
   },
   "defaultLanguage": "en-US"

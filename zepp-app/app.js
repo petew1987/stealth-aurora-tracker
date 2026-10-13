@@ -1,27 +1,36 @@
 /**
- * ZeppHello - Zepp OS Application Entry Point
+ * Aurora Tracker - Zepp OS Application Entry Point
+ * Target Device: Amazfit Active 3 (Round 466x466 AMOLED Screen)
  * Publisher: Stealth Apps
  *
- * TEMPLATE ARCHITECTURE NOTES:
- * - Root app.js executed when the Zepp OS mini-app starts.
- * - globalData is shared across pages, widgets, and side services.
- * - Uses BaseApp from @zeppos/zml/base-app for lifecycle management.
+ * ARCHITECTURE OVERVIEW:
+ * - Root app.js executed when the Zepp OS mini-app initializes on the smartwatch.
+ * - Stores shared globalData accessible to the main page, app-widgets, and secondary glance widgets.
+ * - Manages application lifecycle hooks using @zeppos/zml BaseApp.
  */
+
 import { BaseApp } from '@zeppos/zml/base-app'
 
 App(
   BaseApp({
     globalData: {
-      appName: 'ZeppHello',
+      appName: 'Aurora Tracker',
       vender: 'Stealth Apps',
-      textColor: '#a855f7', // Core Purple
-      clickCount: 0
+      kp: 0,
+      chancePercent: 0,
+      textGuidance: 'Ready to scan',
+      clouds: 0,
+      locationText: 'Locating...',
+      forecast: [],
+      lastUpdated: null
     },
+
     onCreate(options) {
-      console.log('[ZeppHello] App onCreate initialized by Stealth Apps')
+      console.log('[AuroraTracker] App onCreate initialized for Amazfit Active 3 (466x466)')
     },
+
     onDestroy(options) {
-      console.log('[ZeppHello] App onDestroy called')
+      console.log('[AuroraTracker] App onDestroy called')
     }
   })
 )

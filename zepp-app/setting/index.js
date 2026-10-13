@@ -1,47 +1,74 @@
 /**
- * ZeppHello - Settings App (Runs on Smartphone Zepp App for Android & iOS)
+ * Stealth Aurora Tracker - Settings App (Runs on Smartphone Zepp App for Android & iOS)
  * Publisher: Stealth Apps
  *
- * TEMPLATE ARCHITECTURE NOTES:
- * - Rendered in the Zepp smartphone app when configuring the mini-app.
- * - Uses declarative UI components (View, Text, Select, Button, Toggle, etc.).
- * - Persists user preferences to settingsStorage, which syncs to watch & companion.
+ * Provides phone configuration for:
+ * - Active locations list on watch (GPS Local default, plus user-selected auroral hotspots)
+ * - Cloud cover sensitivity filter
+ * - Quick preset toggles
  */
 
-const COLOR_OPTIONS = [
-  { name: 'Emerald Green (#10b981)', value: '#10b981' },
-  { name: 'Cyan Blue (#06b6d4)', value: '#06b6d4' },
-  { name: 'Amber Gold (#f59e0b)', value: '#f59e0b' },
-  { name: 'Hot Pink (#ec4899)', value: '#ec4899' },
-  { name: 'Electric Violet (#8b5cf6)', value: '#8b5cf6' },
-  { name: 'Sky Blue (#38bdf8)', value: '#38bdf8' }
+const PRESET_LOCATIONS = [
+  { id: 'local', name: '📍 GPS Local (Default)', desc: 'Current device GPS position', isGps: true, lat: null, lon: null },
+  { id: 'tromso', name: '🇳🇴 Tromsø, Norway', desc: '69.6°N, 18.9°E · Prime Auroral Oval', lat: 69.65, lon: 18.96 },
+  { id: 'fairbanks', name: '🇺🇸 Fairbanks, Alaska', desc: '64.8°N, -147.7°W · Interior Dark Sky', lat: 64.84, lon: -147.72 },
+  { id: 'reykjavik', name: '🇮🇸 Reykjavik, Iceland', desc: '64.1°N, -21.9°W · Maritime Aurora Belt', lat: 64.14, lon: -21.94 },
+  { id: 'yellowknife', name: '🇨🇦 Yellowknife, Canada', desc: '62.4°N, -114.4°W · Sub-Arctic Capital', lat: 62.45, lon: -114.37 },
+  { id: 'abisko', name: '🇸🇪 Abisko, Sweden', desc: '68.3°N, 18.8°E · Clear Sky Microclimate', lat: 68.35, lon: 18.83 },
+  { id: 'rovaniemi', name: '🇫🇮 Rovaniemi, Finland', desc: '66.5°N, 25.7°E · Arctic Circle Lapland', lat: 66.50, lon: 25.73 }
+]
+
+const CLOUD_THRESHOLD_OPTIONS = [
+  { name: 'Strict (< 30% clouds only)', value: '30' },
+  { name: 'Standard (< 60% clouds)', value: '60' },
+  { name: 'Permissive (< 80% clouds)', value: '80' }
 ]
 
 AppSettingsPage({
   state: {
-    selectedColor: '#10b981'
+    selectedIds: ['local', 'tromso', 'fairbanks', 'reykjavik']
   },
 
   build(props) {
-    let currentColor = '#10b981'
+    let activeIds = ['local', 'tromso', 'fairbanks', 'reykjavik']
     try {
-      const stored = props.settingsStorage.getItem('textColor')
+      const stored = props.settingsStorage.getItem('activeLocationIds')
       if (stored) {
-        currentColor = typeof stored === 'string' ? stored : stored.hex || stored
+        const parsed = typeof stored === 'string' ? JSON.parse(stored) : stored
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          activeIds = parsed
+        }
       }
     } catch (e) {
-      console.log('[ZeppHelloSettings] Error reading settingsStorage:', e)
+      console.log('[StealthAuroraSettings] Error reading activeLocationIds:', e)
+    }
+
+    if (!activeIds.includes('local')) {
+      activeIds.unshift('local')
+    }
+
+    const toggleLocation = (id) => {
+      if (id === 'local') return
+      let updated = [...activeIds]
+      if (updated.includes(id)) {
+        updated = updated.filter(item => item !== id)
+      } else {
+        updated.push(id)
+      }
+      props.settingsStorage.setItem('activeLocationIds', JSON.stringify(updated))
     }
 
     return View(
       {
         style: {
-          padding: '20px 16px',
+          padding: '16px 14px',
           backgroundColor: '#090d16',
+          color: '#f8fafc',
           minHeight: '100%',
           display: 'flex',
           flexDirection: 'column',
-          gap: '16px'
+          gap: '16px',
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
         }
       },
       [
@@ -52,106 +79,215 @@ AppSettingsPage({
             Text({
               style: {
                 fontSize: '20px',
-                fontWeight: '600',
-                color: '#f8fafc',
-                marginBottom: '4px'
+                fontWeight: '700',
+                color: '#10b981',
+                marginBottom: '4px',
+                lineHeight: '26px'
               }
-            }, 'ZeppHello Settings · Stealth Apps'),
+            }, 'Stealth Aurora Tracker'),
             Text({
-              style: { fontSize: '13px', color: '#94a3b8' }
-            }, 'Configure default text color for Amazfit smartwatch')
+              style: { fontSize: '13px', color: '#94a3b8', lineHeight: '18px' }
+            }, 'Select locations to monitor on your Amazfit Active 3 watch. GPS Local is active by default; tap the location title on the watch to cycle through your selected sites.')
           ]
         ),
 
-        // Color Selection Section
+        // Locations Management Section
         Section(
           {
-            title: 'TEXT COLOR THEME',
+            title: 'WATCH LOCATIONS LIST',
             style: {
-              backgroundColor: '#111827',
-              border: '1px solid #1f2937',
+              backgroundColor: '#0f172a',
+              border: '1px solid #1e293b',
               borderRadius: '12px',
-              padding: '16px'
+              padding: '14px'
             }
           },
           [
             Text({
-              style: { fontSize: '12px', color: '#94a3b8', marginBottom: '12px', lineHeight: '18px' }
-            }, 'Select the default highlight color for the Hello message on your watch:'),
+              style: { fontSize: '12px', color: '#cbd5e1', marginBottom: '12px', lineHeight: '18px' }
+            }, 'Tap any location below to enable or disable it on the watch app:'),
+
+            View(
+              {
+                style: {
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }
+              },
+              PRESET_LOCATIONS.map(loc => {
+                const isSelected = activeIds.includes(loc.id)
+                const isGpsDefault = loc.id === 'local'
+
+                return View(
+                  {
+                    style: {
+                      display: 'flex',
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '10px 12px',
+                      backgroundColor: isSelected ? '#132338' : '#0a0f1d',
+                      border: isSelected ? '1px solid #0284c7' : '1px solid #1e293b',
+                      borderRadius: '10px'
+                    }
+                  },
+                  [
+                    View(
+                      { style: { display: 'flex', flexDirection: 'column', flex: 1, marginRight: '10px' } },
+                      [
+                        Text({
+                          style: {
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: isSelected ? '#38bdf8' : '#e2e8f0'
+                          }
+                        }, loc.name),
+                        Text({
+                          style: { fontSize: '11px', color: '#94a3b8', marginTop: '2px' }
+                        }, loc.desc)
+                      ]
+                    ),
+                    Button({
+                      label: isGpsDefault ? 'DEFAULT' : (isSelected ? 'ENABLED' : 'ADD'),
+                      style: {
+                        fontSize: '11px',
+                        fontWeight: '700',
+                        padding: '6px 12px',
+                        backgroundColor: isGpsDefault
+                          ? '#059669'
+                          : (isSelected ? '#0284c7' : '#334155'),
+                        color: '#ffffff',
+                        borderRadius: '6px'
+                      },
+                      onClick: () => {
+                        toggleLocation(loc.id)
+                      }
+                    })
+                  ]
+                )
+              })
+            )
+          ]
+        ),
+
+        // Sky Sensitivity Section
+        Section(
+          {
+            title: 'CLOUD SENSITIVITY FILTER',
+            style: {
+              backgroundColor: '#0f172a',
+              border: '1px solid #1e293b',
+              borderRadius: '12px',
+              padding: '14px'
+            }
+          },
+          [
+            Text({
+              style: { fontSize: '13px', color: '#cbd5e1', marginBottom: '10px', lineHeight: '20px' }
+            }, 'Thick clouds obstruct auroral visibility. Adjust sky transparency threshold:'),
 
             Select({
-              label: 'Hello Text Color',
-              settingsKey: 'textColor',
-              options: COLOR_OPTIONS
+              label: 'Max Cloud Cover Tolerance',
+              settingsKey: 'cloudThreshold',
+              options: CLOUD_THRESHOLD_OPTIONS
             })
           ]
         ),
 
-        // Quick Preset Swatches Section
+        // Quick Preset Bundles
         Section(
           {
-            title: 'QUICK SWATCHES',
+            title: 'QUICK PRESET BUNDLES',
             style: {
-              backgroundColor: '#111827',
-              border: '1px solid #1f2937',
+              backgroundColor: '#0f172a',
+              border: '1px solid #1e293b',
               borderRadius: '12px',
-              padding: '16px'
+              padding: '14px'
             }
           },
           [
             Text({
-              style: { fontSize: '12px', color: '#94a3b8', marginBottom: '12px' }
-            }, 'Tap any swatch to apply instantly:'),
+              style: { fontSize: '12px', color: '#94a3b8', marginBottom: '10px' }
+            }, 'Quickly set your watch rotation:'),
 
             View(
               {
                 style: {
                   display: 'flex',
                   flexDirection: 'row',
-                  gap: '10px',
+                  gap: '8px',
                   flexWrap: 'wrap'
                 }
               },
-              COLOR_OPTIONS.map(opt => {
-                const isActive = currentColor.toLowerCase() === opt.value.toLowerCase()
-                return Button({
-                  label: opt.name.split(' ')[0],
+              [
+                Button({
+                  label: 'GPS Only',
                   style: {
                     fontSize: '12px',
                     fontWeight: '600',
-                    padding: '8px 14px',
-                    backgroundColor: opt.value,
-                    color: '#000000',
-                    borderRadius: '8px',
-                    border: isActive ? '2px solid #ffffff' : 'none'
+                    padding: '8px 12px',
+                    backgroundColor: '#059669',
+                    color: '#ffffff',
+                    borderRadius: '8px'
                   },
                   onClick: () => {
-                    props.settingsStorage.setItem('textColor', opt.value)
+                    props.settingsStorage.setItem('activeLocationIds', JSON.stringify(['local']))
+                  }
+                }),
+                Button({
+                  label: 'All Nordic Sites',
+                  style: {
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    padding: '8px 12px',
+                    backgroundColor: '#0284c7',
+                    color: '#ffffff',
+                    borderRadius: '8px'
+                  },
+                  onClick: () => {
+                    props.settingsStorage.setItem(
+                      'activeLocationIds',
+                      JSON.stringify(['local', 'tromso', 'reykjavik', 'abisko', 'rovaniemi'])
+                    )
+                  }
+                }),
+                Button({
+                  label: 'North America',
+                  style: {
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    padding: '8px 12px',
+                    backgroundColor: '#8b5cf6',
+                    color: '#ffffff',
+                    borderRadius: '8px'
+                  },
+                  onClick: () => {
+                    props.settingsStorage.setItem(
+                      'activeLocationIds',
+                      JSON.stringify(['local', 'fairbanks', 'yellowknife'])
+                    )
                   }
                 })
-              })
+              ]
             )
           ]
         ),
 
-        // Template Documentation Footer
+        // Info footer
         View(
           {
             style: {
-              backgroundColor: '#0d131f',
-              border: '1px solid #1f2937',
+              backgroundColor: '#1e293b/40',
+              border: '1px solid #334155',
               borderRadius: '12px',
-              padding: '16px',
-              marginTop: '8px'
+              padding: '12px'
             }
           },
           [
             Text({
-              style: { fontSize: '13px', fontWeight: '600', color: '#38bdf8', marginBottom: '6px' }
-            }, '💡 Stealth Apps Developer Guide'),
-            Text({
               style: { fontSize: '12px', color: '#94a3b8', lineHeight: '18px' }
-            }, 'To build your own app, modify page/index.js for watch UI, app-side/index.js for APIs, and setting/index.js for user options.')
+            }, 'Watch Tip: On your Amazfit watch screen, tap the location header at the top to cycle between GPS Local and your chosen locations.')
           ]
         )
       ]

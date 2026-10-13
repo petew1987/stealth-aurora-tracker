@@ -37,7 +37,7 @@ async function main() {
   const zabStats = fs.existsSync(standardZabPath) ? fs.statSync(standardZabPath) : null;
   const sizeMb = zabStats ? (zabStats.size / (1024 * 1024)).toFixed(2) : '1.0';
 
-  const repo = process.env.GITHUB_REPOSITORY || 'petew1987/ZeppHello';
+  const repo = process.env.GITHUB_REPOSITORY || 'petew1987/stealth-aurora-tracker';
   const serverUrl = process.env.GITHUB_SERVER_URL || 'https://github.com';
 
   const downloadUrlZab = `${serverUrl}/${repo}/releases/latest/download/zepphello.zab`;

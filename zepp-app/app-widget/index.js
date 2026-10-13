@@ -1,12 +1,12 @@
 /**
- * ZeppHello - Shortcut Card (AppWidget)
- * Publisher: Stealth Apps
+ * Stealth Aurora Tracker - Shortcut Card (AppWidget)
  * Target Device: Amazfit Active 3 (Round 466x466 AMOLED Screen)
+ * Publisher: Stealth Apps
  *
- * TEMPLATE ARCHITECTURE NOTES:
- * - AppWidget renders a quick card in the Amazfit Shortcut Screen (swiping right).
- * - Reads shared globalData from the running app instance.
- * - Tapping the card jumps directly to the full app via hmApp.gotoPage().
+ * ARCHITECTURAL ROLE:
+ * - Renders an ambient glance card on the Amazfit shortcut feed (swiping right).
+ * - Reads cached space weather and cloud conditions from globalData.
+ * - Single tap opens the full Aurora Tracker page via hmApp.gotoPage().
  */
 
 const SCREEN_WIDTH = 466
@@ -16,28 +16,35 @@ const CARD_WIDTH = SCREEN_WIDTH - CARD_MARGIN * 2 // 418px
 
 AppWidget({
   state: {
-    textColor: '#10b981',
-    clickCount: 0
+    kp: '3.5',
+    chancePercent: 70,
+    clouds: 15,
+    textGuidance: 'High Viewing Chance',
+    locationText: 'Tromsø, Norway'
   },
 
   widgets: {
     bgCard: null,
     titleLabel: null,
-    helloLabel: null,
-    counterLabel: null,
+    probLabel: null,
+    statusLabel: null,
     clickOverlay: null
   },
 
   onInit() {
-    console.log('[ZeppHello] AppWidget initialized by Stealth Apps')
+    console.log('[StealthAurora] AppWidget initialized')
+    this.readGlobalData()
+  },
+
+  readGlobalData() {
     const app = typeof getApp === 'function' ? getApp() : null
     if (app && app._options && app._options.globalData) {
-      if (app._options.globalData.textColor) {
-        this.state.textColor = app._options.globalData.textColor
-      }
-      if (app._options.globalData.clickCount !== undefined) {
-        this.state.clickCount = app._options.globalData.clickCount
-      }
+      const gd = app._options.globalData
+      if (gd.kp !== undefined) this.state.kp = gd.kp
+      if (gd.chancePercent !== undefined) this.state.chancePercent = gd.chancePercent
+      if (gd.clouds !== undefined) this.state.clouds = gd.clouds
+      if (gd.textGuidance) this.state.textGuidance = gd.textGuidance
+      if (gd.locationText) this.state.locationText = gd.locationText
     }
   },
 
@@ -50,7 +57,7 @@ AppWidget({
     const startY = 10
 
     if (typeof hmUI !== 'undefined') {
-      // 1. Background Card
+      // 1. Background Rounded Card
       this.widgets.bgCard = hmUI.createWidget(hmUI.widget.FILL_RECT, {
         x: startX,
         y: startY,
@@ -60,46 +67,48 @@ AppWidget({
         color: 0x0f172a
       })
 
-      // 2. Title
+      // 2. Section Header with Location & Kp
       this.widgets.titleLabel = hmUI.createWidget(hmUI.widget.TEXT, {
         x: startX + 24,
-        y: startY + 20,
+        y: startY + 18,
         w: CARD_WIDTH - 48,
-        h: 24,
+        h: 22,
         color: 0x38bdf8,
-        text_size: 15,
+        text_size: 14,
         align_h: hmUI.align.LEFT,
         align_v: hmUI.align.CENTER_V,
-        text: 'ZEPPHELLO SHORTCUT CARD'
+        text: `AURORA · ${this.state.locationText} · Kp ${this.state.kp}`
       })
 
-      // 3. Hello Message
-      this.widgets.helloLabel = hmUI.createWidget(hmUI.widget.TEXT, {
+      // 3. Huge Probability Display
+      const chance = this.state.chancePercent
+      const probColor = chance >= 70 ? 0x10b981 : chance >= 40 ? 0x06b6d4 : 0x94a3b8
+      this.widgets.probLabel = hmUI.createWidget(hmUI.widget.TEXT, {
         x: startX + 24,
-        y: startY + 50,
+        y: startY + 44,
         w: CARD_WIDTH - 48,
-        h: 44,
-        color: 0x10b981,
-        text_size: 32,
+        h: 46,
+        color: probColor,
+        text_size: 36,
         align_h: hmUI.align.LEFT,
         align_v: hmUI.align.CENTER_V,
-        text: 'Hello, Zepp OS!'
+        text: `${chance}% Likelihood`
       })
 
-      // 4. Subtitle / Taps
-      this.widgets.counterLabel = hmUI.createWidget(hmUI.widget.TEXT, {
+      // 4. Subtitle / Guidance and Cloud Cover
+      this.widgets.statusLabel = hmUI.createWidget(hmUI.widget.TEXT, {
         x: startX + 24,
-        y: startY + 98,
+        y: startY + 96,
         w: CARD_WIDTH - 48,
         h: 22,
         color: 0x94a3b8,
-        text_size: 13,
+        text_size: 14,
         align_h: hmUI.align.LEFT,
         align_v: hmUI.align.CENTER_V,
-        text: `Stealth Apps · Taps: ${this.state.clickCount}`
+        text: `${this.state.textGuidance} · ☁ ${this.state.clouds}% clouds`
       })
 
-      // 5. Click overlay
+      // 5. Click Overlay to Jump to Full Page
       this.widgets.clickOverlay = hmUI.createWidget(hmUI.widget.BUTTON, {
         x: startX,
         y: startY,
@@ -117,15 +126,24 @@ AppWidget({
   },
 
   onResume() {
-    const app = typeof getApp === 'function' ? getApp() : null
-    if (app && app._options && app._options.globalData) {
-      if (app._options.globalData.clickCount !== undefined && this.widgets.counterLabel) {
-        this.state.clickCount = app._options.globalData.clickCount
-        this.widgets.counterLabel.setProperty(
-          hmUI.prop.TEXT,
-          `Stealth Apps · Taps: ${this.state.clickCount}`
-        )
-      }
+    this.readGlobalData()
+    if (this.widgets.titleLabel) {
+      this.widgets.titleLabel.setProperty(
+        hmUI.prop.TEXT,
+        `AURORA · ${this.state.locationText} · Kp ${this.state.kp}`
+      )
+    }
+    if (this.widgets.probLabel) {
+      const chance = this.state.chancePercent
+      const probColor = chance >= 70 ? 0x10b981 : chance >= 40 ? 0x06b6d4 : 0x94a3b8
+      this.widgets.probLabel.setProperty(hmUI.prop.TEXT, `${chance}% Likelihood`)
+      this.widgets.probLabel.setProperty(hmUI.prop.COLOR, probColor)
+    }
+    if (this.widgets.statusLabel) {
+      this.widgets.statusLabel.setProperty(
+        hmUI.prop.TEXT,
+        `${this.state.textGuidance} · ☁ ${this.state.clouds}% clouds`
+      )
     }
   },
 

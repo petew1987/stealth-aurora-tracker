@@ -2,17 +2,18 @@
  * Stealth Aurora Tracker - Secondary Widget (Swipe-Left Glanceable Widget)
  * Target Device: Amazfit Active 3 (Round 466x466 AMOLED Screen)
  * Publisher: Stealth Apps
+ * ZERO emojis used.
  */
 
 const SCREEN_SIZE = 466
 
 SecondaryWidget({
   state: {
-    kp: '3.5',
-    chancePercent: 70,
-    clouds: 15,
+    kp: '4.2',
+    chancePercent: 78,
+    clouds: 18,
     textGuidance: 'High Viewing Chance',
-    locationText: 'Tromsø, Norway'
+    locationText: 'Local GPS'
   },
 
   widgets: {
@@ -110,7 +111,7 @@ SecondaryWidget({
       text: this.state.textGuidance
     })
 
-    // 5. Cloud conditions & location
+    // 5. Cloud conditions & location (NO emojis)
     this.widgets.cloudsLabel = hmUI.createWidget(hmUI.widget.TEXT, {
       x: 33,
       y: 255,
@@ -120,7 +121,7 @@ SecondaryWidget({
       text_size: 14,
       align_h: hmUI.align.CENTER_H,
       align_v: hmUI.align.CENTER_V,
-      text: `${this.state.locationText} · ☁ ${this.state.clouds}%`
+      text: `${this.state.locationText} · Cloud ${this.state.clouds}%`
     })
 
     // 6. Click overlay
@@ -164,7 +165,7 @@ SecondaryWidget({
     if (this.widgets.cloudsLabel) {
       this.widgets.cloudsLabel.setProperty(
         hmUI.prop.TEXT,
-        `${this.state.locationText} · ☁ ${this.state.clouds}%`
+        `${this.state.locationText} · Cloud ${this.state.clouds}%`
       )
     }
   },

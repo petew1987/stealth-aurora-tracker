@@ -7,6 +7,7 @@
  * - Renders an ambient glance card on the Amazfit shortcut feed (swiping right).
  * - Reads cached space weather and cloud conditions from globalData.
  * - Single tap opens the full Aurora Tracker page via hmApp.gotoPage().
+ * - ZERO emojis used.
  */
 
 const SCREEN_WIDTH = 466
@@ -16,11 +17,11 @@ const CARD_WIDTH = SCREEN_WIDTH - CARD_MARGIN * 2 // 418px
 
 AppWidget({
   state: {
-    kp: '3.5',
-    chancePercent: 70,
-    clouds: 15,
+    kp: '4.2',
+    chancePercent: 78,
+    clouds: 18,
     textGuidance: 'High Viewing Chance',
-    locationText: 'Tromsø, Norway'
+    locationText: 'Local GPS'
   },
 
   widgets: {
@@ -95,7 +96,7 @@ AppWidget({
         text: `${chance}% Likelihood`
       })
 
-      // 4. Subtitle / Guidance and Cloud Cover
+      // 4. Subtitle / Guidance and Cloud Cover (NO emojis)
       this.widgets.statusLabel = hmUI.createWidget(hmUI.widget.TEXT, {
         x: startX + 24,
         y: startY + 96,
@@ -105,7 +106,7 @@ AppWidget({
         text_size: 14,
         align_h: hmUI.align.LEFT,
         align_v: hmUI.align.CENTER_V,
-        text: `${this.state.textGuidance} · ☁ ${this.state.clouds}% clouds`
+        text: `${this.state.textGuidance} · Cloud ${this.state.clouds}%`
       })
 
       // 5. Click Overlay to Jump to Full Page
@@ -142,7 +143,7 @@ AppWidget({
     if (this.widgets.statusLabel) {
       this.widgets.statusLabel.setProperty(
         hmUI.prop.TEXT,
-        `${this.state.textGuidance} · ☁ ${this.state.clouds}% clouds`
+        `${this.state.textGuidance} · Cloud ${this.state.clouds}%`
       )
     }
   },

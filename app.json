@@ -2,7 +2,7 @@
   "configVersion": "v3",
   "app": {
     "appId": 1009876,
-    "appName": "Stealth Aurora Tracker",
+    "appName": "Aurora",
     "appType": "app",
     "version": {
       "code": 1,
@@ -44,7 +44,7 @@
         "app-widget": {
           "widgets": [
             {
-              "name": "Stealth Aurora Widget",
+              "name": "Aurora Widget",
               "path": "app-widget/index",
               "icon": "icon.png"
             }
@@ -53,7 +53,7 @@
         "secondary-widget": {
           "widgets": [
             {
-              "name": "Stealth Aurora Glance",
+              "name": "Aurora Glance",
               "path": "secondary-widget/index",
               "icon": "icon.png"
             }
@@ -70,7 +70,7 @@
   },
   "i18n": {
     "en-US": {
-      "appName": "Stealth Aurora Tracker"
+      "appName": "Aurora"
     }
   },
   "defaultLanguage": "en-US"

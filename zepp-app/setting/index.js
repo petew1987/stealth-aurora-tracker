@@ -2,61 +2,98 @@
  * Stealth Aurora Tracker - Settings App (Runs on Smartphone Zepp App for Android & iOS)
  * Publisher: Stealth Apps
  *
- * Provides phone configuration for:
- * - Active locations list on watch (GPS Local default, plus user-selected auroral hotspots)
- * - Cloud cover sensitivity filter
- * - Quick preset toggles
+ * FEATURES:
+ * - Up to 5 user-chosen preset locations (no hardcoded preloaded locations).
+ * - Text search system using Open-Meteo Geocoding to find any global city/town coordinates.
+ * - Permanent default: GPS Local view.
+ * - Add/remove saved presets to watch rotation.
  */
-
-const PRESET_LOCATIONS = [
-  { id: 'local', name: '📍 GPS Local (Default)', desc: 'Current device GPS position', isGps: true, lat: null, lon: null },
-  { id: 'tromso', name: '🇳🇴 Tromsø, Norway', desc: '69.6°N, 18.9°E · Prime Auroral Oval', lat: 69.65, lon: 18.96 },
-  { id: 'fairbanks', name: '🇺🇸 Fairbanks, Alaska', desc: '64.8°N, -147.7°W · Interior Dark Sky', lat: 64.84, lon: -147.72 },
-  { id: 'reykjavik', name: '🇮🇸 Reykjavik, Iceland', desc: '64.1°N, -21.9°W · Maritime Aurora Belt', lat: 64.14, lon: -21.94 },
-  { id: 'yellowknife', name: '🇨🇦 Yellowknife, Canada', desc: '62.4°N, -114.4°W · Sub-Arctic Capital', lat: 62.45, lon: -114.37 },
-  { id: 'abisko', name: '🇸🇪 Abisko, Sweden', desc: '68.3°N, 18.8°E · Clear Sky Microclimate', lat: 68.35, lon: 18.83 },
-  { id: 'rovaniemi', name: '🇫🇮 Rovaniemi, Finland', desc: '66.5°N, 25.7°E · Arctic Circle Lapland', lat: 66.50, lon: 25.73 }
-]
-
-const CLOUD_THRESHOLD_OPTIONS = [
-  { name: 'Strict (< 30% clouds only)', value: '30' },
-  { name: 'Standard (< 60% clouds)', value: '60' },
-  { name: 'Permissive (< 80% clouds)', value: '80' }
-]
 
 AppSettingsPage({
   state: {
-    selectedIds: ['local', 'tromso', 'fairbanks', 'reykjavik']
+    searchQuery: '',
+    searchResults: [],
+    isSearching: false,
+    searchError: ''
   },
 
   build(props) {
-    let activeIds = ['local', 'tromso', 'fairbanks', 'reykjavik']
+    let savedLocations = []
     try {
-      const stored = props.settingsStorage.getItem('activeLocationIds')
+      const stored = props.settingsStorage.getItem('customLocations')
       if (stored) {
         const parsed = typeof stored === 'string' ? JSON.parse(stored) : stored
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          activeIds = parsed
+        if (Array.isArray(parsed)) {
+          savedLocations = parsed.slice(0, 5)
         }
       }
     } catch (e) {
-      console.log('[StealthAuroraSettings] Error reading activeLocationIds:', e)
+      console.log('[StealthAuroraSettings] Error reading customLocations:', e)
     }
 
-    if (!activeIds.includes('local')) {
-      activeIds.unshift('local')
-    }
-
-    const toggleLocation = (id) => {
-      if (id === 'local') return
-      let updated = [...activeIds]
-      if (updated.includes(id)) {
-        updated = updated.filter(item => item !== id)
-      } else {
-        updated.push(id)
+    let cloudThreshold = '60'
+    try {
+      const storedClouds = props.settingsStorage.getItem('cloudThreshold')
+      if (storedClouds) {
+        cloudThreshold = typeof storedClouds === 'string' ? storedClouds : storedClouds.value || storedClouds
       }
-      props.settingsStorage.setItem('activeLocationIds', JSON.stringify(updated))
+    } catch (e) {}
+
+    const updateSavedLocations = (newList) => {
+      const capped = newList.slice(0, 5)
+      props.settingsStorage.setItem('customLocations', JSON.stringify(capped))
     }
+
+    const removeLocation = (locId) => {
+      const updated = savedLocations.filter(loc => loc.id !== locId)
+      updateSavedLocations(updated)
+    }
+
+    const addLocation = (item) => {
+      if (savedLocations.length >= 5) {
+        return
+      }
+      if (savedLocations.some(loc => loc.id === item.id)) {
+        return
+      }
+      const newLoc = {
+        id: String(item.id || Date.now()),
+        name: item.name,
+        country: item.country || '',
+        admin1: item.admin1 || '',
+        lat: Number(item.latitude.toFixed(4)),
+        lon: Number(item.longitude.toFixed(4))
+      }
+      updateSavedLocations([...savedLocations, newLoc])
+    }
+
+    const executeSearch = (query) => {
+      if (!query || query.trim().length < 2) return
+
+      const trimmed = query.trim()
+      const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(trimmed)}&count=5&language=en&format=json`
+
+      fetch(url)
+        .then(res => res.json())
+        .then(data => {
+          if (data && Array.isArray(data.results)) {
+            props.settingsStorage.setItem('tempSearchResults', JSON.stringify(data.results))
+          } else {
+            props.settingsStorage.setItem('tempSearchResults', JSON.stringify([]))
+          }
+        })
+        .catch(err => {
+          console.log('[StealthAuroraSettings] Geocoding error:', err)
+        })
+    }
+
+    let currentResults = []
+    try {
+      const tempRes = props.settingsStorage.getItem('tempSearchResults')
+      if (tempRes) {
+        currentResults = typeof tempRes === 'string' ? JSON.parse(tempRes) : tempRes
+      }
+    } catch (e) {}
 
     return View(
       {
@@ -87,14 +124,120 @@ AppSettingsPage({
             }, 'Stealth Aurora Tracker'),
             Text({
               style: { fontSize: '13px', color: '#94a3b8', lineHeight: '18px' }
-            }, 'Select locations to monitor on your Amazfit Active 3 watch. GPS Local is active by default; tap the location title on the watch to cycle through your selected sites.')
+            }, 'GPS Local is always your primary default view. Search below to add up to 5 custom preset locations to your watch rotation.')
           ]
         ),
 
-        // Locations Management Section
+        // Default GPS Local Card
         Section(
           {
-            title: 'WATCH LOCATIONS LIST',
+            title: 'DEFAULT VIEW (ACTIVE)',
+            style: {
+              backgroundColor: '#064e3b',
+              border: '1px solid #059669',
+              borderRadius: '12px',
+              padding: '14px'
+            }
+          },
+          [
+            View(
+              { style: { display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' } },
+              [
+                View(
+                  { style: { display: 'flex', flexDirection: 'column' } },
+                  [
+                    Text({
+                      style: { fontSize: '15px', fontWeight: '700', color: '#ffffff' }
+                    }, '📍 GPS Local (Default)'),
+                    Text({
+                      style: { fontSize: '12px', color: '#a7f3d0', marginTop: '2px' }
+                    }, 'Continuously tracks viewing odds at watch position.')
+                  ]
+                ),
+                Text({
+                  style: {
+                    fontSize: '11px',
+                    fontWeight: '700',
+                    backgroundColor: '#047857',
+                    color: '#ffffff',
+                    padding: '4px 8px',
+                    borderRadius: '6px'
+                  }
+                }, 'ALWAYS ON')
+              ]
+            )
+          ]
+        ),
+
+        // Saved Custom Preset Locations (Max 5)
+        Section(
+          {
+            title: `SAVED WATCH PRESETS (${savedLocations.length}/5 MAX)`,
+            style: {
+              backgroundColor: '#0f172a',
+              border: '1px solid #1e293b',
+              borderRadius: '12px',
+              padding: '14px'
+            }
+          },
+          [
+            savedLocations.length === 0
+              ? Text({
+                  style: { fontSize: '13px', color: '#64748b', fontStyle: 'italic', padding: '6px 0' }
+                }, 'No custom presets added yet. Search below to add up to 5 locations.')
+              : View(
+                  { style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
+                  savedLocations.map((loc, idx) => {
+                    return View(
+                      {
+                        style: {
+                          display: 'flex',
+                          flexDirection: 'row',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: '10px 12px',
+                          backgroundColor: '#132338',
+                          border: '1px solid #0284c7',
+                          borderRadius: '10px'
+                        }
+                      },
+                      [
+                        View(
+                          { style: { display: 'flex', flexDirection: 'column', flex: 1, marginRight: '10px' } },
+                          [
+                            Text({
+                              style: { fontSize: '14px', fontWeight: '600', color: '#38bdf8' }
+                            }, `${idx + 1}. ${loc.name}${loc.country ? ', ' + loc.country : ''}`),
+                            Text({
+                              style: { fontSize: '11px', color: '#94a3b8', marginTop: '2px' }
+                            }, `${loc.lat >= 0 ? loc.lat + '°N' : Math.abs(loc.lat) + '°S'}, ${loc.lon >= 0 ? loc.lon + '°E' : Math.abs(loc.lon) + '°W'}`)
+                          ]
+                        ),
+                        Button({
+                          label: 'REMOVE',
+                          style: {
+                            fontSize: '11px',
+                            fontWeight: '700',
+                            padding: '6px 10px',
+                            backgroundColor: '#e11d48',
+                            color: '#ffffff',
+                            borderRadius: '6px'
+                          },
+                          onClick: () => {
+                            removeLocation(loc.id)
+                          }
+                        })
+                      ]
+                    )
+                  })
+                )
+          ]
+        ),
+
+        // Location Search System (Find any city/coordinates)
+        Section(
+          {
+            title: 'SEARCH & ADD LOCATIONS',
             style: {
               backgroundColor: '#0f172a',
               border: '1px solid #1e293b',
@@ -104,74 +247,118 @@ AppSettingsPage({
           },
           [
             Text({
-              style: { fontSize: '12px', color: '#cbd5e1', marginBottom: '12px', lineHeight: '18px' }
-            }, 'Tap any location below to enable or disable it on the watch app:'),
+              style: { fontSize: '12px', color: '#cbd5e1', marginBottom: '8px' }
+            }, 'Search any city, town, or observing site to fetch its exact coordinates:'),
+
+            TextInput({
+              label: 'Search Location',
+              settingsKey: 'currentSearchInput',
+              placeholder: 'e.g. Tromso, Fairbanks, Reykjavik, Kiruna...',
+              onChange: (val) => {
+                executeSearch(val)
+              }
+            }),
 
             View(
               {
                 style: {
                   display: 'flex',
-                  flexDirection: 'column',
-                  gap: '8px'
+                  flexDirection: 'row',
+                  gap: '6px',
+                  flexWrap: 'wrap',
+                  marginTop: '10px',
+                  marginBottom: '10px'
                 }
               },
-              PRESET_LOCATIONS.map(loc => {
-                const isSelected = activeIds.includes(loc.id)
-                const isGpsDefault = loc.id === 'local'
+              ['Tromsø', 'Fairbanks', 'Reykjavik', 'Yellowknife', 'Abisko', 'Inverness'].map(city => {
+                return Button({
+                  label: city,
+                  style: {
+                    fontSize: '11px',
+                    padding: '5px 8px',
+                    backgroundColor: '#1e293b',
+                    color: '#94a3b8',
+                    borderRadius: '6px'
+                  },
+                  onClick: () => {
+                    executeSearch(city)
+                  }
+                })
+              })
+            ),
 
-                return View(
+            currentResults.length > 0
+              ? View(
                   {
                     style: {
                       display: 'flex',
-                      flexDirection: 'row',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '10px 12px',
-                      backgroundColor: isSelected ? '#132338' : '#0a0f1d',
-                      border: isSelected ? '1px solid #0284c7' : '1px solid #1e293b',
-                      borderRadius: '10px'
+                      flexDirection: 'column',
+                      gap: '6px',
+                      marginTop: '8px',
+                      borderTop: '1px solid #1e293b',
+                      paddingTop: '10px'
                     }
                   },
                   [
-                    View(
-                      { style: { display: 'flex', flexDirection: 'column', flex: 1, marginRight: '10px' } },
-                      [
-                        Text({
+                    Text({
+                      style: { fontSize: '12px', fontWeight: '700', color: '#10b981', marginBottom: '4px' }
+                    }, 'SEARCH RESULTS — TAP TO ADD:'),
+
+                    ...currentResults.map(res => {
+                      const isAlreadyAdded = savedLocations.some(l => l.id === String(res.id))
+                      const isFull = savedLocations.length >= 5
+
+                      return View(
+                        {
                           style: {
-                            fontSize: '14px',
-                            fontWeight: '600',
-                            color: isSelected ? '#38bdf8' : '#e2e8f0'
+                            display: 'flex',
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '8px 10px',
+                            backgroundColor: '#0b1329',
+                            border: '1px solid #1e293b',
+                            borderRadius: '8px'
                           }
-                        }, loc.name),
-                        Text({
-                          style: { fontSize: '11px', color: '#94a3b8', marginTop: '2px' }
-                        }, loc.desc)
-                      ]
-                    ),
-                    Button({
-                      label: isGpsDefault ? 'DEFAULT' : (isSelected ? 'ENABLED' : 'ADD'),
-                      style: {
-                        fontSize: '11px',
-                        fontWeight: '700',
-                        padding: '6px 12px',
-                        backgroundColor: isGpsDefault
-                          ? '#059669'
-                          : (isSelected ? '#0284c7' : '#334155'),
-                        color: '#ffffff',
-                        borderRadius: '6px'
-                      },
-                      onClick: () => {
-                        toggleLocation(loc.id)
-                      }
+                        },
+                        [
+                          View(
+                            { style: { display: 'flex', flexDirection: 'column', flex: 1, marginRight: '8px' } },
+                            [
+                              Text({
+                                style: { fontSize: '13px', fontWeight: '600', color: '#f8fafc' }
+                              }, `${res.name}${res.admin1 ? ', ' + res.admin1 : ''}${res.country ? ' (' + res.country + ')' : ''}`),
+                              Text({
+                                style: { fontSize: '11px', color: '#64748b' }
+                              }, `Lat: ${res.latitude.toFixed(3)}, Lon: ${res.longitude.toFixed(3)}`)
+                            ]
+                          ),
+                          Button({
+                            label: isAlreadyAdded ? 'ADDED' : (isFull ? 'LIST FULL' : '+ ADD'),
+                            style: {
+                              fontSize: '11px',
+                              fontWeight: '700',
+                              padding: '6px 10px',
+                              backgroundColor: isAlreadyAdded ? '#334155' : (isFull ? '#475569' : '#059669'),
+                              color: '#ffffff',
+                              borderRadius: '6px'
+                            },
+                            onClick: () => {
+                              if (!isAlreadyAdded && !isFull) {
+                                addLocation(res)
+                              }
+                            }
+                          })
+                        ]
+                      )
                     })
                   ]
                 )
-              })
-            )
+              : null
           ]
         ),
 
-        // Sky Sensitivity Section
+        // Cloud Threshold Section
         Section(
           {
             title: 'CLOUD SENSITIVITY FILTER',
@@ -184,97 +371,22 @@ AppSettingsPage({
           },
           [
             Text({
-              style: { fontSize: '13px', color: '#cbd5e1', marginBottom: '10px', lineHeight: '20px' }
-            }, 'Thick clouds obstruct auroral visibility. Adjust sky transparency threshold:'),
+              style: { fontSize: '12px', color: '#cbd5e1', marginBottom: '8px' }
+            }, 'Adjust cloud cover visibility threshold:'),
 
             Select({
-              label: 'Max Cloud Cover Tolerance',
+              label: 'Max Cloud Tolerance',
               settingsKey: 'cloudThreshold',
-              options: CLOUD_THRESHOLD_OPTIONS
+              options: [
+                { name: 'Strict (< 30% clouds)', value: '30' },
+                { name: 'Standard (< 60% clouds)', value: '60' },
+                { name: 'Permissive (< 80% clouds)', value: '80' }
+              ]
             })
           ]
         ),
 
-        // Quick Preset Bundles
-        Section(
-          {
-            title: 'QUICK PRESET BUNDLES',
-            style: {
-              backgroundColor: '#0f172a',
-              border: '1px solid #1e293b',
-              borderRadius: '12px',
-              padding: '14px'
-            }
-          },
-          [
-            Text({
-              style: { fontSize: '12px', color: '#94a3b8', marginBottom: '10px' }
-            }, 'Quickly set your watch rotation:'),
-
-            View(
-              {
-                style: {
-                  display: 'flex',
-                  flexDirection: 'row',
-                  gap: '8px',
-                  flexWrap: 'wrap'
-                }
-              },
-              [
-                Button({
-                  label: 'GPS Only',
-                  style: {
-                    fontSize: '12px',
-                    fontWeight: '600',
-                    padding: '8px 12px',
-                    backgroundColor: '#059669',
-                    color: '#ffffff',
-                    borderRadius: '8px'
-                  },
-                  onClick: () => {
-                    props.settingsStorage.setItem('activeLocationIds', JSON.stringify(['local']))
-                  }
-                }),
-                Button({
-                  label: 'All Nordic Sites',
-                  style: {
-                    fontSize: '12px',
-                    fontWeight: '600',
-                    padding: '8px 12px',
-                    backgroundColor: '#0284c7',
-                    color: '#ffffff',
-                    borderRadius: '8px'
-                  },
-                  onClick: () => {
-                    props.settingsStorage.setItem(
-                      'activeLocationIds',
-                      JSON.stringify(['local', 'tromso', 'reykjavik', 'abisko', 'rovaniemi'])
-                    )
-                  }
-                }),
-                Button({
-                  label: 'North America',
-                  style: {
-                    fontSize: '12px',
-                    fontWeight: '600',
-                    padding: '8px 12px',
-                    backgroundColor: '#8b5cf6',
-                    color: '#ffffff',
-                    borderRadius: '8px'
-                  },
-                  onClick: () => {
-                    props.settingsStorage.setItem(
-                      'activeLocationIds',
-                      JSON.stringify(['local', 'fairbanks', 'yellowknife'])
-                    )
-                  }
-                })
-              ]
-            )
-          ]
-        ),
-
-        // Info footer
+        // Footer Instructions
         View(
           {
             style: {
@@ -287,7 +399,7 @@ AppSettingsPage({
           [
             Text({
               style: { fontSize: '12px', color: '#94a3b8', lineHeight: '18px' }
-            }, 'Watch Tip: On your Amazfit watch screen, tap the location header at the top to cycle between GPS Local and your chosen locations.')
+            }, 'Watch Usage: On your Amazfit watch, tap the location pill at the top of the screen to cycle between GPS Local and your saved presets.')
           ]
         )
       ]

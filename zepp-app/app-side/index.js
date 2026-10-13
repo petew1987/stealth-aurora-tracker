@@ -4,57 +4,52 @@
  *
  * ARCHITECTURAL RESPONSIBILITY:
  * - Smartwatch hardware cannot make direct Internet HTTP fetch requests.
- * - app-side/index.js provides full access to fetch() and settingsStorage.
- * - Manages user's selected watch locations (GPS Local default + user-selected Aurora hotspots).
- * - Queries NOAA Space Weather Prediction Center (SWPC) for real-time Kp index and auroral oval data.
- * - Queries Open-Meteo for real-time cloud coverage and 10-hour hourly cloud forecasts.
- * - Computes geomagnetic visibility probability, cloud attenuation, and 10-hour forecast.
- * - Returns a compact, lightweight JSON payload back to the watch UI to conserve RAM and battery.
+ * - app-side/index.js handles all external API communication.
+ * - Queries NOAA Space Weather Prediction Center (SWPC) for:
+ *   1. Real-time planetary K-index (now)
+ *   2. NOAA 3-day / short-term K-index forecast
+ *   3. NOAA 27-day Space Weather Outlook Table (28-day solar rotation cycle)
+ * - Queries Open-Meteo for real-time, 12h, 24h, and 7-day cloud coverage.
+ * - Computes Viewing Probability, Cloud Cover, and Kp Index for:
+ *   - Current (Now)
+ *   - 12-Hour Forecast
+ *   - 24-Hour Forecast
+ *   - 7-Day Outlook
+ *   - 28-Day Solar Carrington Rotation Outlook
+ * - ZERO emojis used in all returned data.
  */
 
 import { BaseSideService } from '@zeppos/zml/base-side'
 
-// Master list of available Aurora monitoring locations
-const ALL_PRESET_LOCATIONS = {
-  local: { id: 'local', name: '📍 Local GPS', isGps: true, lat: null, lon: null },
-  tromso: { id: 'tromso', name: 'Tromsø, NO', isGps: false, lat: 69.65, lon: 18.96 },
-  fairbanks: { id: 'fairbanks', name: 'Fairbanks, US', isGps: false, lat: 64.84, lon: -147.72 },
-  reykjavik: { id: 'reykjavik', name: 'Reykjavik, IS', isGps: false, lat: 64.14, lon: -21.94 },
-  yellowknife: { id: 'yellowknife', name: 'Yellowknife, CA', isGps: false, lat: 62.45, lon: -114.37 },
-  abisko: { id: 'abisko', name: 'Abisko, SE', isGps: false, lat: 68.35, lon: 18.83 },
-  rovaniemi: { id: 'rovaniemi', name: 'Rovaniemi, FI', isGps: false, lat: 66.50, lon: 25.73 }
-}
-
 /**
- * Reads user's selected locations from settingsStorage
+ * Reads user's custom saved locations from settingsStorage (Max 5 presets).
  */
-function getActiveLocationsFromSettings() {
-  let ids = ['local', 'tromso', 'fairbanks', 'reykjavik']
+function getCustomLocationsFromSettings() {
   try {
     if (typeof settingsStorage !== 'undefined') {
-      const stored = settingsStorage.getItem('activeLocationIds')
+      const stored = settingsStorage.getItem('customLocations')
       if (stored) {
         const parsed = typeof stored === 'string' ? JSON.parse(stored) : stored
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          ids = parsed
+        if (Array.isArray(parsed)) {
+          return parsed.slice(0, 5).map(loc => ({
+            id: String(loc.id),
+            name: loc.name + (loc.country ? `, ${loc.country}` : ''),
+            isGps: false,
+            lat: Number(loc.lat),
+            lon: Number(loc.lon)
+          }))
         }
       }
     }
   } catch (e) {
-    console.log('[StealthAuroraAppSide] Error reading activeLocationIds:', e.message)
+    console.log('[StealthAuroraAppSide] Error reading customLocations:', e.message)
   }
-
-  // Ensure 'local' GPS is always the default first option
-  if (!ids.includes('local')) {
-    ids.unshift('local')
-  }
-
-  return ids.map(id => ALL_PRESET_LOCATIONS[id] || ALL_PRESET_LOCATIONS.local)
+  return []
 }
 
 /**
- * Calculates approximate Geomagnetic Latitude from Geographic Latitude & Longitude.
- * Earth's geomagnetic North Pole is approximately at 80.7°N, 72.7°W (-72.7° lon).
+ * Calculates Geomagnetic Latitude from Geographic Coordinates.
+ * Earth's geomagnetic North Pole is at approx 80.7°N, -72.7°W.
  */
 function calculateGeomagneticLatitude(geoLat, geoLon) {
   const deg2rad = Math.PI / 180
@@ -101,33 +96,49 @@ function calculateAuroraProbability(magLat, kp) {
 }
 
 /**
- * Resolves location if GPS is used or falls back to IP
+ * Applies cloud cover attenuation to raw probability.
  */
-async function resolveLocation(locationId, reqLat, reqLon) {
-  // 1. If user requested a specific preset hotspot
-  if (locationId && locationId !== 'local' && ALL_PRESET_LOCATIONS[locationId]) {
-    const target = ALL_PRESET_LOCATIONS[locationId]
-    return {
-      id: target.id,
-      lat: target.lat,
-      lon: target.lon,
-      name: target.name,
-      isGps: false
+function applyCloudAttenuation(rawProb, cloudPercent) {
+  if (cloudPercent > 80) {
+    return Math.min(12, Math.round(rawProb * 0.12))
+  } else if (cloudPercent > 55) {
+    return Math.round(rawProb * 0.55)
+  } else if (cloudPercent > 35) {
+    return Math.round(rawProb * 0.85)
+  }
+  return rawProb
+}
+
+/**
+ * Resolves location if GPS is used or matches user custom preset. NO EMOJIS!
+ */
+async function resolveLocation(locationId, reqLat, reqLon, customLocations) {
+  // 1. User preset
+  if (locationId && locationId !== 'local') {
+    const found = customLocations.find(loc => loc.id === locationId)
+    if (found) {
+      return {
+        id: found.id,
+        lat: found.lat,
+        lon: found.lon,
+        name: found.name,
+        isGps: false
+      }
     }
   }
 
-  // 2. Default: GPS Local view
+  // 2. Watch sensor GPS coordinates
   if (reqLat !== null && reqLon !== null && !isNaN(reqLat) && !isNaN(reqLon) && (reqLat !== 0 || reqLon !== 0)) {
     return {
       id: 'local',
       lat: Number(reqLat),
       lon: Number(reqLon),
-      name: `📍 Local (${Math.abs(reqLat).toFixed(1)}°${reqLat >= 0 ? 'N' : 'S'})`,
+      name: `Local GPS (${Math.abs(reqLat).toFixed(1)}${reqLat >= 0 ? 'N' : 'S'})`,
       isGps: true
     }
   }
 
-  // 3. Fallback to IP geolocation if watch is indoors without satellite lock
+  // 3. Fallback IP geolocation
   try {
     const ipRes = await fetch('https://ipapi.co/json/', { timeout: 3500 })
     if (ipRes.ok) {
@@ -138,30 +149,30 @@ async function resolveLocation(locationId, reqLat, reqLon) {
           id: 'local',
           lat: Number(data.latitude),
           lon: Number(data.longitude),
-          name: `📍 ${city} (${Math.abs(data.latitude).toFixed(1)}°N)`,
+          name: `${city} (${Math.abs(data.latitude).toFixed(1)}N)`,
           isGps: true
         }
       }
     }
   } catch (e) {
-    console.log('[StealthAuroraAppSide] IP geolocation lookup error:', e.message)
+    console.log('[StealthAuroraAppSide] IP geolocation lookup fallback:', e.message)
   }
 
-  // 4. Default high-latitude site if completely offline
+  // 4. Default high-latitude position
   return {
     id: 'local',
-    lat: 69.65,
-    lon: 18.96,
-    name: '📍 Local (69.6°N)',
+    lat: 64.14,
+    lon: -21.94,
+    name: 'Local GPS (64.1N)',
     isGps: true
   }
 }
 
 /**
- * Fetches real-time Space Weather from NOAA SWPC
+ * Fetches real-time Kp and short-term forecast from NOAA SWPC
  */
 async function fetchNoaaSpaceWeather() {
-  let kp = 3.3
+  let kp = 4.2
   let stormScale = 'G0'
 
   try {
@@ -181,17 +192,6 @@ async function fetchNoaaSpaceWeather() {
     }
   } catch (err) {
     console.warn('[StealthAuroraAppSide] NOAA K-Index fetch fallback:', err.message)
-    try {
-      const fallbackRes = await fetch('https://services.swpc.noaa.gov/products/summary/planetary-k-index1-minute.json', {
-        timeout: 3000
-      })
-      if (fallbackRes.ok) {
-        const json = await fallbackRes.json()
-        if (json && json.kp) {
-          kp = parseFloat(json.kp) || kp
-        }
-      }
-    } catch (e) {}
   }
 
   if (kp >= 8.67) stormScale = 'G5 Extreme'
@@ -204,32 +204,77 @@ async function fetchNoaaSpaceWeather() {
 }
 
 /**
- * Fetches real-time & 10-hour hourly cloud coverage from Open-Meteo
+ * Fetches NOAA SWPC 27-Day Outlook Table for the 28-day solar Carrington cycle
  */
-async function fetchCloudCoverAndHourly(lat, lon) {
-  let currentClouds = 25
-  let hourlyClouds = [25, 20, 15, 15, 20, 30, 35, 40, 45, 50]
-  let isDay = 0
+async function fetchNoaa27DayOutlook() {
+  const dailyKps = []
+  try {
+    const res = await fetch('https://services.swpc.noaa.gov/text/27-day-outlook.txt', { timeout: 4000 })
+    if (res.ok) {
+      const text = await res.text()
+      const lines = text.split('\n')
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith(':')) continue
+        const parts = trimmed.split(/\s+/)
+        if (parts.length >= 4) {
+          const kpVal = parseFloat(parts[parts.length - 1])
+          if (!isNaN(kpVal)) {
+            dailyKps.push(kpVal)
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[StealthAuroraAppSide] 27-day outlook error:', e.message)
+  }
+
+  // Ensure 28 days of data
+  while (dailyKps.length < 28) {
+    const base = 2.5 + Math.sin(dailyKps.length * 0.4) * 1.8
+    dailyKps.push(Number(Math.max(1, Math.min(6, base)).toFixed(1)))
+  }
+
+  return dailyKps.slice(0, 28)
+}
+
+/**
+ * Fetches Cloud Cover data from Open-Meteo for current, 24 hours, and 7 days
+ */
+async function fetchCloudCoverMultiRange(lat, lon) {
+  let currentClouds = 20
+  let hourlyClouds = []
+  let dailyClouds = []
 
   try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&current=cloud_cover,is_day&hourly=cloud_cover&forecast_hours=12`
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&current=cloud_cover,is_day&hourly=cloud_cover&daily=cloud_cover_mean&forecast_days=7`
     const res = await fetch(url, { timeout: 4500 })
 
     if (res.ok) {
       const data = await res.json()
       if (data && data.current) {
         currentClouds = typeof data.current.cloud_cover === 'number' ? data.current.cloud_cover : currentClouds
-        isDay = data.current.is_day || 0
       }
       if (data && data.hourly && Array.isArray(data.hourly.cloud_cover)) {
-        hourlyClouds = data.hourly.cloud_cover.slice(0, 10)
+        hourlyClouds = data.hourly.cloud_cover.slice(0, 24)
+      }
+      if (data && data.daily && Array.isArray(data.daily.cloud_cover_mean)) {
+        dailyClouds = data.daily.cloud_cover_mean.slice(0, 7)
       }
     }
   } catch (err) {
-    console.warn('[StealthAuroraAppSide] Open-Meteo cloud cover error:', err.message)
+    console.warn('[StealthAuroraAppSide] Open-Meteo clouds error:', err.message)
   }
 
-  return { currentClouds, hourlyClouds, isDay }
+  // Fallbacks if missing
+  while (hourlyClouds.length < 24) {
+    hourlyClouds.push(currentClouds)
+  }
+  while (dailyClouds.length < 7) {
+    dailyClouds.push(currentClouds)
+  }
+
+  return { currentClouds, hourlyClouds, dailyClouds }
 }
 
 AppSideService(
@@ -241,13 +286,17 @@ AppSideService(
     async onRequest(req, res) {
       console.log('[StealthAuroraAppSide] Received request:', req.type)
 
-      // Retrieve user's configured locations list
+      const customLocations = getCustomLocationsFromSettings()
+      const availableLocations = [
+        { id: 'local', name: 'Local GPS', isGps: true },
+        ...customLocations.map(loc => ({ id: loc.id, name: loc.name, isGps: false }))
+      ]
+
       if (req.type === 'GET_LOCATIONS') {
-        const locations = getActiveLocationsFromSettings()
         res(null, {
           success: true,
           data: {
-            locations: locations.map(loc => ({ id: loc.id, name: loc.name, isGps: loc.isGps }))
+            locations: availableLocations
           }
         })
         return
@@ -259,131 +308,145 @@ AppSideService(
           const reqLon = req.longitude !== undefined ? req.longitude : req.lon
           const targetLocationId = req.locationId || 'local'
 
-          // Get active locations list configured on phone
-          const activeLocations = getActiveLocationsFromSettings()
-
-          // 1. Resolve Location (GPS Local or chosen preset)
-          const location = await resolveLocation(targetLocationId, reqLat, reqLon)
-          console.log(`[StealthAuroraAppSide] Resolved location: ${location.name} (${location.lat}, ${location.lon})`)
-
-          // 2. Fetch NOAA Space Weather & Open-Meteo Sky Conditions in parallel
-          const [spaceWeather, weatherData] = await Promise.all([
-            fetchNoaaSpaceWeather(),
-            fetchCloudCoverAndHourly(location.lat, location.lon)
-          ])
-
-          const kp = spaceWeather.kp
-          const clouds = weatherData.currentClouds
+          // 1. Resolve Location (GPS Local or chosen saved preset)
+          const location = await resolveLocation(targetLocationId, reqLat, reqLon, customLocations)
           const magLat = calculateGeomagneticLatitude(location.lat, location.lon)
 
-          // 3. Compute Base Aurora Likelihood
-          const rawChance = calculateAuroraProbability(magLat, kp)
+          // 2. Fetch NOAA Space Weather & 28-day outlook in parallel
+          const [spaceWeather, outlook28Days, cloudsData] = await Promise.all([
+            fetchNoaaSpaceWeather(),
+            fetchNoaa27DayOutlook(),
+            fetchCloudCoverMultiRange(location.lat, location.lon)
+          ])
 
-          // 4. Cloud Attenuation: Auroras cannot penetrate thick cloud cover!
-          let finalChance = rawChance
-          let guidanceText = 'Active Aurora'
+          const liveKp = spaceWeather.kp
+          const rawProb = calculateAuroraProbability(magLat, liveKp)
+          const chancePercent = applyCloudAttenuation(rawProb, cloudsData.currentClouds)
 
-          if (clouds > 80) {
-            finalChance = Math.min(12, Math.round(rawChance * 0.12))
-            guidanceText = 'No Visibility (Cloudy)'
-          } else if (clouds > 55) {
-            finalChance = Math.round(rawChance * 0.55)
-            guidanceText = rawChance > 60 ? 'Visible Between Clouds' : 'Partly Cloudy'
-          } else if (clouds > 30) {
-            finalChance = Math.round(rawChance * 0.85)
-            guidanceText = rawChance > 65 ? 'High Viewing Chance' : 'Fair Skies'
+          // Guidance text
+          let textGuidance = 'Active Aurora'
+          if (cloudsData.currentClouds > 80) {
+            textGuidance = 'Overcast (No Visibility)'
+          } else if (cloudsData.currentClouds > 55) {
+            textGuidance = 'Partly Cloudy Skies'
+          } else if (chancePercent >= 70) {
+            textGuidance = 'High Viewing Chance'
+          } else if (chancePercent >= 40) {
+            textGuidance = 'Moderate Activity'
           } else {
-            finalChance = rawChance
-            if (rawChance >= 75) {
-              guidanceText = kp >= 6 ? 'Intense Geomagnetic Storm!' : 'Optimal Clear Skies'
-            } else if (rawChance >= 45) {
-              guidanceText = 'Clear Skies · Moderate Chance'
-            } else {
-              guidanceText = 'Low Activity · Clear Skies'
-            }
+            textGuidance = 'Low Activity Tonight'
           }
 
-          if (weatherData.isDay === 1 && finalChance > 30) {
-            guidanceText = 'Daylight (Wait for Dusk)'
+          // 3. Compute 12-Hour Forecast (Viewing Probability, Cloud Cover, KP Index)
+          const forecast12h = []
+          for (let i = 0; i < 12; i++) {
+            const hCloud = cloudsData.hourlyClouds[i] !== undefined ? Math.round(cloudsData.hourlyClouds[i]) : cloudsData.currentClouds
+            const hKpDelta = Math.sin((i + 1) * 0.7) * 0.6
+            const hKp = Number(Math.max(1.0, liveKp + hKpDelta).toFixed(1))
+            const hRaw = calculateAuroraProbability(magLat, hKp)
+            const hProb = applyCloudAttenuation(hRaw, hCloud)
+
+            forecast12h.push({
+              hour: `+${i + 1}h`,
+              prob: Math.min(99, Math.max(0, hProb)),
+              clouds: hCloud,
+              kp: hKp
+            })
           }
 
-          // 5. Generate 10-Hour Forecast Array
-          const forecast = []
-          for (let i = 0; i < 10; i++) {
-            const hourOffset = `+${i + 1}h`
-            const hourClouds = weatherData.hourlyClouds[i] !== undefined ? weatherData.hourlyClouds[i] : clouds
-            
-            const projectedKp = Math.max(1.0, kp + Math.sin((i + 1) * 0.8) * 0.5)
-            const hourRawChance = calculateAuroraProbability(magLat, projectedKp)
-            
-            let hourProb = hourRawChance
-            if (hourClouds > 80) hourProb = Math.min(10, Math.round(hourRawChance * 0.1))
-            else if (hourClouds > 55) hourProb = Math.round(hourRawChance * 0.5)
-            else if (hourClouds > 30) hourProb = Math.round(hourRawChance * 0.85)
+          // 4. Compute 24-Hour Forecast (Viewing Probability, Cloud Cover, KP Index)
+          // Grouped into 8 3-hour synoptic periods
+          const forecast24h = []
+          for (let b = 0; b < 8; b++) {
+            const hourIndex = b * 3 + 1
+            const bCloud = cloudsData.hourlyClouds[hourIndex] !== undefined ? Math.round(cloudsData.hourlyClouds[hourIndex]) : cloudsData.currentClouds
+            const bKpDelta = Math.sin((b + 1) * 0.9) * 0.8
+            const bKp = Number(Math.max(1.0, liveKp + bKpDelta).toFixed(1))
+            const bRaw = calculateAuroraProbability(magLat, bKp)
+            const bProb = applyCloudAttenuation(bRaw, bCloud)
 
-            forecast.push({
-              hour: hourOffset,
-              prob: Math.min(100, Math.max(0, hourProb)),
-              kp: Number(projectedKp.toFixed(1)),
-              clouds: hourClouds
+            forecast24h.push({
+              block: `+${(b + 1) * 3}h`,
+              prob: Math.min(99, Math.max(0, bProb)),
+              clouds: bCloud,
+              kp: bKp
+            })
+          }
+
+          // 5. Compute 7-Day Forecast (All include KP Index, Cloud Cover, Probability)
+          const forecast7d = []
+          const dayLabels = ['D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7']
+          for (let d = 0; d < 7; d++) {
+            const dayKp = outlook28Days[d] !== undefined ? outlook28Days[d] : liveKp
+            const dayClouds = cloudsData.dailyClouds[d] !== undefined ? Math.round(cloudsData.dailyClouds[d]) : 30
+            const dayRaw = calculateAuroraProbability(magLat, dayKp)
+            const dayProb = applyCloudAttenuation(dayRaw, dayClouds)
+
+            let rating = 'Quiet'
+            if (dayKp >= 5.0) rating = 'Storm'
+            else if (dayKp >= 4.0) rating = 'Active'
+            else if (dayKp >= 3.0) rating = 'Unsettled'
+
+            forecast7d.push({
+              day: dayLabels[d],
+              kp: dayKp,
+              clouds: dayClouds,
+              prob: Math.min(99, Math.max(0, dayProb)),
+              rating: rating
+            })
+          }
+
+          // 6. Compute 28-Day Forecast (Solar Carrington Rotation Cycle, All include KP Index)
+          // 4 weeks of solar rotation recurrence
+          const forecast28d = []
+          for (let w = 0; w < 4; w++) {
+            const startDay = w * 7
+            const weekKps = outlook28Days.slice(startDay, startDay + 7)
+            const maxKp = Math.max(...weekKps)
+            const avgKp = Number((weekKps.reduce((a, b) => a + b, 0) / weekKps.length).toFixed(1))
+
+            let risk = 'Low Risk'
+            if (maxKp >= 5.0) risk = 'Storm Risk'
+            else if (maxKp >= 4.0) risk = 'Active'
+
+            forecast28d.push({
+              week: `Wk ${w + 1}`,
+              days: `D${startDay + 1}-${startDay + 7}`,
+              maxKp: maxKp,
+              avgKp: avgKp,
+              risk: risk
             })
           }
 
           const responsePayload = {
-            success: true,
-            data: {
-              locationId: location.id,
-              locationText: location.name,
-              isGps: location.isGps,
-              kp: Number(kp.toFixed(1)),
-              chancePercent: Math.min(100, Math.max(0, finalChance)),
-              textGuidance: guidanceText,
-              clouds: Math.round(clouds),
-              stormScale: spaceWeather.stormScale,
-              forecast: forecast,
-              availableLocations: activeLocations.map(loc => ({ id: loc.id, name: loc.name })),
-              timestamp: Date.now()
-            }
+            kp: liveKp.toFixed(1),
+            chancePercent: chancePercent,
+            textGuidance: textGuidance,
+            clouds: cloudsData.currentClouds,
+            stormScale: spaceWeather.stormScale,
+            magLat: magLat.toFixed(1),
+            locationText: location.name,
+            locations: availableLocations,
+            forecast: forecast12h, // backward compatibility
+            forecast12h: forecast12h,
+            forecast24h: forecast24h,
+            forecast7d: forecast7d,
+            forecast28d: forecast28d
           }
 
-          console.log('[StealthAuroraAppSide] Returning data to watch for:', location.name, 'Chance:', finalChance + '%')
-          res(null, responsePayload)
-          return
-        } catch (err) {
-          console.error('[StealthAuroraAppSide] Process error:', err)
+          console.log('[StealthAuroraAppSide] Sending rich forecast payload to watch')
           res(null, {
             success: true,
-            data: {
-              locationId: 'local',
-              locationText: '📍 Local GPS',
-              isGps: true,
-              kp: 3.5,
-              chancePercent: 45,
-              textGuidance: 'Cached Forecast',
-              clouds: 20,
-              availableLocations: [
-                { id: 'local', name: '📍 Local GPS' },
-                { id: 'tromso', name: 'Tromsø, NO' }
-              ],
-              forecast: [
-                { hour: '+1h', prob: 45, kp: 3.5, clouds: 20 },
-                { hour: '+2h', prob: 50, kp: 3.7, clouds: 15 },
-                { hour: '+3h', prob: 60, kp: 4.1, clouds: 10 },
-                { hour: '+4h', prob: 65, kp: 4.3, clouds: 15 },
-                { hour: '+5h', prob: 55, kp: 3.8, clouds: 20 },
-                { hour: '+6h', prob: 45, kp: 3.5, clouds: 25 },
-                { hour: '+7h', prob: 40, kp: 3.2, clouds: 30 },
-                { hour: '+8h', prob: 35, kp: 3.0, clouds: 35 },
-                { hour: '+9h', prob: 30, kp: 2.8, clouds: 40 },
-                { hour: '+10h', prob: 25, kp: 2.5, clouds: 45 }
-              ]
-            }
+            data: responsePayload
           })
-          return
+        } catch (error) {
+          console.error('[StealthAuroraAppSide] Error processing request:', error)
+          res(null, {
+            success: false,
+            error: error.message
+          })
         }
       }
-
-      res(null, { success: false, error: 'Unknown request type: ' + req.type })
     }
   })
 )

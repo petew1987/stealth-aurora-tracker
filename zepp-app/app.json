@@ -1,0 +1,75 @@
+{
+  "configVersion": "v3",
+  "app": {
+    "appId": 1009877,
+    "appName": "ZeppHello",
+    "appType": "app",
+    "version": {
+      "code": 1,
+      "name": "1.0.0"
+    },
+    "icon": "icon.png",
+    "vender": "Stealth Apps",
+    "description": "Zepp OS 3.0 / 2.x Mini-App template by Stealth Apps for Amazfit smartwatches featuring interactive Hello message, customizable color settings, companion app side, widgets, and GitHub QR code installer generator for developer mode on Zepp App."
+  },
+  "packageInfo": {
+    "mode": "preview"
+  },
+  "permissions": [
+    "device:os.bg_service"
+  ],
+  "runtime": {
+    "apiVersion": {
+      "compatible": "2.0.0",
+      "target": "3.0.0",
+      "minVersion": "2.0"
+    }
+  },
+  "targets": {
+    "default": {
+      "module": {
+        "page": {
+          "pages": [
+            "page/index"
+          ]
+        },
+        "app-side": {
+          "path": "app-side/index"
+        },
+        "setting": {
+          "path": "setting/index"
+        },
+        "app-widget": {
+          "widgets": [
+            {
+              "name": "ZeppHello Widget",
+              "path": "app-widget/index",
+              "icon": "icon.png"
+            }
+          ]
+        },
+        "secondary-widget": {
+          "widgets": [
+            {
+              "name": "ZeppHello Quick",
+              "path": "secondary-widget/index",
+              "icon": "icon.png"
+            }
+          ]
+        }
+      },
+      "platforms": [
+        {
+          "st": "r",
+          "dw": 466
+        }
+      ]
+    }
+  },
+  "i18n": {
+    "en-US": {
+      "appName": "ZeppHello"
+    }
+  },
+  "defaultLanguage": "en-US"
+}
